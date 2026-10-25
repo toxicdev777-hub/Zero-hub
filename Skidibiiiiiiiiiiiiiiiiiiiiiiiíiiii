@@ -1,0 +1,858 @@
+-- zero hub | Bone · Katakuri · Tyrant · Level · Dungeon
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local CollectionService = game:GetService("CollectionService")
+local VirtualUser = game:GetService("VirtualUser")
+
+local Player = Players.LocalPlayer
+local character, humanoid, humanoidRootPart
+local ServerJoinTime = tick()
+
+local function refreshChar(c)
+	character = c or Player.Character
+	if not character then return end
+	humanoid = character:FindFirstChildOfClass("Humanoid") or character:WaitForChild("Humanoid", 5)
+	humanoidRootPart = character:FindFirstChild("HumanoidRootPart") or character:WaitForChild("HumanoidRootPart", 5)
+end
+refreshChar(Player.Character)
+Player.CharacterAdded:Connect(function(c) task.wait(0.35) refreshChar(c) end)
+
+local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+local Window = WindUI:CreateWindow({
+	Title = "Zero Hub",
+	Icon = "swords",
+	Author = "Blox Fruits",
+	Folder = "ZeroHub",
+	Size = UDim2.fromOffset(520, 420),
+	Transparent = true,
+	Theme = "Dark",
+	SideBarWidth = 150,
+})
+
+local TabMain = Window:Tab({ Title = "Main", Icon = "swords" })
+local TabDungeon = Window:Tab({ Title = "Dungeon", Icon = "shield" })
+local TabSet = Window:Tab({ Title = "Setting", Icon = "settings" })
+
+getgenv().ZeroHub = getgenv().ZeroHub or {}
+local G = getgenv().ZeroHub
+
+G.FarmMode = G.FarmMode or "Tyrant"
+G.StartFarm = G.StartFarm or false
+G.DestroyVases = G.DestroyVases or false
+G.AutoQuest = G.AutoQuest or false
+G.Weapon = G.Weapon or "Melee"
+G.FA = G.FA ~= false
+G.Bring = G.Bring ~= false
+G.BringRange = G.BringRange or 350
+G.V3 = G.V3 or false
+G.V4 = G.V4 or false
+G.TweenSpeed = G.TweenSpeed or 250
+G.PosY = G.PosY or 20
+G.AntiAFK = G.AntiAFK ~= false
+G.AutoDungeon = G.AutoDungeon or false
+G.AutoDungeonEvent = G.AutoDungeonEvent or false
+G.AutoCards = G.AutoCards or false
+G.SelectedCards = G.SelectedCards or {
+	Hyper = true, Overflow = true, Fortress = true, Shadow = true,
+	Sniper = true, Lifesteal = true, Unbreakable = true, Health = true,
+	Defense = true, Armor = true, Melee = true, Sword = true, Fruit = true, Gun = true,
+}
+
+local BonesList = {
+	["Reborn Skeleton"] = true, ["Living Zombie"] = true,
+	["Demonic Soul"] = true, ["Posessed Mummy"] = true,
+}
+local CakesList = {
+	["Head Baker"] = true, ["Baking Staff"] = true,
+	["Cake Guard"] = true, ["Cookie Crafter"] = true,
+}
+local TyrantList = {
+	["Serpent Hunter"] = true, ["Skull Slayer"] = true,
+	["Isle Champion"] = true, ["Sun-kissed Warrior"] = true,
+}
+local DungeonCards = {
+	"Hyper", "Overflow", "Fortress", "Shadow", "Sniper", "Lifesteal",
+	"Unbreakable", "Health", "Defense", "Armor", "Melee", "Sword", "Fruit", "Gun",
+}
+
+local CF = {
+	BoneQuest = CFrame.new(-9517, 172, 6078),
+	BoneFarm = CFrame.new(-9506, 172, 6057),
+	CakeQuest = CFrame.new(-2021, 38, -12029),
+	CakeFarm = CFrame.new(-2304, 228, -12240),
+	CakePortal = CFrame.new(-2168, 84, -12397),
+	Tyrant = CFrame.new(-16257, 22, 1062),
+}
+
+local BRING_TAG = "ZeroBringTag"
+local Net = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("Net")
+local Remotes = ReplicatedStorage:FindFirstChild("Remotes")
+local Map = Workspace:FindFirstChild("Map")
+
+local function CommF()
+	return Remotes and Remotes:FindFirstChild("CommF_")
+end
+local function FireInvoke(...)
+	local c = CommF()
+	if not c then return end
+	local a = {...}
+	local ok, res = pcall(function() return c:InvokeServer(unpack(a)) end)
+	return ok and res or nil
+end
+
+-- ========== TWEEN ==========
+local tweenToken, tweening, bodyVelocity = 0, false, nil
+
+local function ensureBV()
+	if not humanoidRootPart then return end
+	if bodyVelocity and bodyVelocity.Parent then return end
+	local old = humanoidRootPart:FindFirstChild("PartVelocuty")
+	if old then old:Destroy() end
+	bodyVelocity = Instance.new("BodyVelocity")
+	bodyVelocity.Name = "PartVelocuty"
+	bodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+	bodyVelocity.Velocity = Vector3.zero
+	bodyVelocity.P = 1000
+	bodyVelocity.Parent = humanoidRootPart
+end
+
+local function stopTween()
+	tweenToken += 1
+	tweening = false
+	if bodyVelocity then pcall(function() if bodyVelocity.Parent then bodyVelocity:Destroy() end end) bodyVelocity = nil end
+	if humanoidRootPart then
+		local pv = humanoidRootPart:FindFirstChild("PartVelocuty")
+		if pv then pv:Destroy() end
+	end
+end
+
+local function topos(goalCF, keepBV)
+	if tweening then return end
+	if not humanoidRootPart or not humanoid or humanoid.Health <= 0 then return end
+	local goal = typeof(goalCF) == "CFrame" and goalCF or CFrame.new(goalCF)
+	if goal.Y < -50 then goal = CFrame.new(goal.X, 20, goal.Z) end
+	local start = humanoidRootPart.CFrame
+	local magnitude = (goal.Position - start.Position).Magnitude
+	if magnitude <= 5 then
+		humanoidRootPart.CFrame = goal
+		if keepBV then ensureBV() end
+		return
+	end
+	tweenToken += 1
+	local my = tweenToken
+	tweening = true
+	ensureBV()
+	if character then
+		for _, p in pairs(character:GetDescendants()) do
+			if p:IsA("BasePart") then p.CanCollide = false end
+		end
+	end
+	task.spawn(function()
+		local now, traveled = tick(), 0
+		local speed = math.max(tonumber(G.TweenSpeed) or 250, 0.1)
+		while my == tweenToken and humanoid and humanoid.Health > 0 and humanoidRootPart and humanoidRootPart.Parent do
+			local now2 = tick()
+			traveled += speed * (now2 - now)
+			local a = math.clamp(traveled / magnitude, 0, 1)
+			local cf = start:Lerp(goal, a)
+			if cf.Y < -20 then cf = CFrame.new(cf.X, 20, cf.Z) end
+			humanoidRootPart.CFrame = cf
+			if bodyVelocity and bodyVelocity.Parent then bodyVelocity.Velocity = Vector3.zero end
+			if a >= 1 or (goal.Position - humanoidRootPart.Position).Magnitude <= 10 then
+				humanoidRootPart.CFrame = goal
+				break
+			end
+			task.wait()
+			now = now2
+		end
+		tweening = false
+		if keepBV then ensureBV() else
+			if bodyVelocity then pcall(function() bodyVelocity:Destroy() end) bodyVelocity = nil end
+		end
+	end)
+end
+
+local function getFarmCFrame(root)
+	if not root or not root.Parent then return nil end
+	local y = math.clamp(tonumber(G.PosY) or 20, 5, 30)
+	if root.Position.Y < -50 then return nil end
+	return CFrame.new(root.Position + Vector3.new(0, y, 0.5))
+end
+
+-- ========== COMBAT ==========
+local function equipWeapon(kind)
+	kind = kind or G.Weapon or "Melee"
+	if not character or not humanoid then return end
+	local function ok(t)
+		local tip = tostring(t.ToolTip or "")
+		if kind == "Fruit" or kind == "Blox Fruit" then return tip == "Blox Fruit"
+		elseif kind == "Gun" then return tip == "Gun"
+		elseif kind == "Sword" then return tip == "Sword"
+		else return tip == "Melee" or tip == "Combat" end
+	end
+	for _, t in ipairs(character:GetChildren()) do if t:IsA("Tool") and ok(t) then return t end end
+	for _, t in ipairs(Player.Backpack:GetChildren()) do
+		if t:IsA("Tool") and ok(t) then humanoid:EquipTool(t) return t end
+	end
+end
+
+local function autoHaki()
+	pcall(function()
+		if not character then return end
+		if not character:HasTag("Buso") then FireInvoke("BuyHaki", "Buso") end
+		if character:HasTag("Buso") and not character:FindFirstChild("HasBuso") then FireInvoke("Buso") end
+	end)
+end
+
+local function doAttack(mob, noBring)
+	if not mob or not mob.Parent then return end
+	local root = mob:FindFirstChild("HumanoidRootPart") or mob.PrimaryPart
+	local hum = mob:FindFirstChildOfClass("Humanoid")
+	if not root or not hum or hum.Health <= 0 or root.Position.Y < -50 then return end
+
+	equipWeapon(G.Weapon)
+	autoHaki()
+
+	local farmCF = getFarmCFrame(root)
+	if not farmCF then return end
+	if humanoidRootPart and (humanoidRootPart.Position - farmCF.Position).Magnitude > 8 then
+		topos(farmCF, true)
+	elseif humanoidRootPart and farmCF.Y > -20 then
+		ensureBV()
+		humanoidRootPart.CFrame = farmCF
+	end
+
+	if not noBring and G.Bring then
+		-- bring is called outside
+	end
+
+	local tool = character and character:FindFirstChildOfClass("Tool")
+	if tool then
+		local mp = tool:FindFirstChild("MousePos")
+		if mp and mp:IsA("Vector3Value") then mp.Value = root.Position end
+		pcall(function() tool:Activate() end)
+	end
+	if Net then
+		local RA = Net:FindFirstChild("RE/RegisterAttack")
+		local RH = Net:FindFirstChild("RE/RegisterHit")
+		if RA and RH then
+			pcall(function()
+				RA:FireServer(0)
+				RH:FireServer(mob:FindFirstChild("Head") or root, {{mob, root}})
+			end)
+		end
+	end
+end
+
+-- ========== BRING ==========
+local bringCache, lastBring, lastSim = {}, 0, 0
+
+local function bringEnemies(target)
+	if not G.Bring or not target or not humanoidRootPart then return end
+	local tRoot = target:FindFirstChild("HumanoidRootPart") or target.PrimaryPart
+	if not tRoot or tRoot.Position.Y < -50 then return end
+	local now = tick()
+	if now - lastBring < 0.25 then return end
+	lastBring = now
+	local radius = tonumber(G.BringRange) or 350
+	if now - lastSim > 3 then
+		lastSim = now
+		pcall(function()
+			sethiddenproperty(Player, "SimulationRadius", math.clamp(radius + 50, 100, 500))
+			sethiddenproperty(Player, "MaxSimulationRadius", math.clamp(radius + 50, 100, 500))
+		end)
+	end
+	bringCache[target.Name] = tRoot.CFrame
+	local tagged = CollectionService:GetTagged(BRING_TAG)
+	for _, m in ipairs(tagged) do
+		local h = m:FindFirstChildOfClass("Humanoid")
+		if not m.Parent or not h or h.Health <= 0 then
+			pcall(function() CollectionService:RemoveTag(m, BRING_TAG) end)
+		end
+	end
+	if #tagged >= 8 then return end
+	local en = Workspace:FindFirstChild("Enemies")
+	if not en then return end
+	local n = 0
+	for _, e in ipairs(en:GetChildren()) do
+		if e ~= target and e.Name == target.Name and not CollectionService:HasTag(e, BRING_TAG) then
+			local r, h = e:FindFirstChild("HumanoidRootPart"), e:FindFirstChildOfClass("Humanoid")
+			if r and h and h.Health > 0 and r.Position.Y > -50 then
+				if (r.Position - tRoot.Position).Magnitude <= radius
+					and (r.Position - humanoidRootPart.Position).Magnitude <= radius then
+					CollectionService:AddTag(e, BRING_TAG)
+					n += 1
+					if n >= 4 then break end
+				end
+			end
+		end
+	end
+end
+
+CollectionService:GetInstanceAddedSignal(BRING_TAG):Connect(function(mob)
+	task.spawn(function()
+		local r = mob:FindFirstChild("HumanoidRootPart") or mob.PrimaryPart
+		local h = mob:FindFirstChildOfClass("Humanoid")
+		if not r or not h then pcall(function() CollectionService:RemoveTag(mob, BRING_TAG) end) return end
+		local bp = r:FindFirstChild("BringBodyPos") or Instance.new("BodyPosition")
+		bp.Name = "BringBodyPos"
+		bp.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+		bp.P = 8000
+		bp.D = 600
+		bp.Parent = r
+		local expire, fails = tick() + 25, 0
+		while G.Bring and mob.Parent and r.Parent and h.Health > 0
+			and CollectionService:HasTag(mob, BRING_TAG) and tick() < expire do
+			local cache, my = bringCache[mob.Name], humanoidRootPart
+			if my and cache and cache.Y > -20 and (my.Position - r.Position).Magnitude <= (G.BringRange or 350) + 50 then
+				for _, p in ipairs(mob:GetChildren()) do if p:IsA("BasePart") then p.CanCollide = false end end
+				r.AssemblyLinearVelocity = Vector3.zero
+				bp.Position = cache.Position
+				fails = 0
+			else fails += 1 end
+			if fails > 15 then break end
+			task.wait(0.04)
+		end
+		pcall(function()
+			if bp and bp.Parent then bp:Destroy() end
+			if CollectionService:HasTag(mob, BRING_TAG) then CollectionService:RemoveTag(mob, BRING_TAG) end
+		end)
+	end)
+end)
+
+-- ========== HELPERS ==========
+local function getEnemy(mapOrName)
+	local en = Workspace:FindFirstChild("Enemies")
+	if not en or not humanoidRootPart then return nil end
+	local best, bd = nil, math.huge
+	for _, e in ipairs(en:GetChildren()) do
+		local h, r = e:FindFirstChildOfClass("Humanoid"), e:FindFirstChild("HumanoidRootPart")
+		if h and h.Health > 0 and r and r.Position.Y > -50 then
+			local ok = type(mapOrName) == "string" and e.Name == mapOrName
+				or type(mapOrName) == "table" and mapOrName[e.Name] == true
+			if ok then
+				local d = (r.Position - humanoidRootPart.Position).Magnitude
+				if d < bd then bd, best = d, e end
+			end
+		end
+	end
+	return best
+end
+
+local function getNearestEnemy()
+	local en = Workspace:FindFirstChild("Enemies")
+	if not en or not humanoidRootPart then return nil end
+	local best, bd = nil, math.huge
+	for _, e in ipairs(en:GetChildren()) do
+		local h, r = e:FindFirstChildOfClass("Humanoid"), e:FindFirstChild("HumanoidRootPart")
+		if h and h.Health > 0 and r and r.Position.Y > -50 then
+			local d = (r.Position - humanoidRootPart.Position).Magnitude
+			if d < bd and d < 4000 then bd, best = d, e end
+		end
+	end
+	return best
+end
+
+local function hasQuest(text)
+	local q = Player:FindFirstChild("PlayerGui") and Player.PlayerGui:FindFirstChild("Main") and Player.PlayerGui.Main:FindFirstChild("Quest")
+	if not (q and q.Visible) then return false end
+	local title = q:FindFirstChild("Container") and q.Container:FindFirstChild("QuestTitle")
+	title = title and title:FindFirstChild("Title")
+	if title and title.Text then
+		return string.find(string.lower(title.Text), string.lower(text)) ~= nil
+	end
+	return false
+end
+
+local function hasAnyQuest()
+	local q = Player:FindFirstChild("PlayerGui") and Player.PlayerGui:FindFirstChild("Main") and Player.PlayerGui.Main:FindFirstChild("Quest")
+	return q and q.Visible == true
+end
+
+-- quest: pega e NÃO fica parado — no próximo tick já farm
+local questCooldown = 0
+local function tryQuest(name, num, cf, keyword)
+	if hasQuest(keyword) or hasAnyQuest() then return false end
+	if tick() - questCooldown < 2 then return false end
+	if humanoidRootPart and (humanoidRootPart.Position - cf.Position).Magnitude <= 30 then
+		FireInvoke("StartQuest", name, num)
+		questCooldown = tick()
+		task.wait(0.35)
+		return false -- já tem quest, próximo loop farm
+	else
+		topos(cf, false)
+		return true -- ainda indo no NPC
+	end
+end
+
+-- ========== SKULL GUITAR (Quantum CustomShoot) ==========
+local function equipSkullGuitar()
+	if not character or not humanoid then return nil end
+	local t = character:FindFirstChild("Skull Guitar")
+	if t then return t end
+	t = Player.Backpack:FindFirstChild("Skull Guitar")
+	if t then
+		humanoid:EquipTool(t)
+		task.wait(0.12)
+		return character:FindFirstChild("Skull Guitar")
+	end
+	FireInvoke("LoadItem", "Skull Guitar")
+	task.wait(0.35)
+	t = Player.Backpack:FindFirstChild("Skull Guitar")
+	if t then
+		humanoid:EquipTool(t)
+		task.wait(0.12)
+	end
+	return character and character:FindFirstChild("Skull Guitar")
+end
+
+local function customShoot(pos)
+	local tool = equipSkullGuitar()
+	if not tool then
+		-- tenta qualquer gun
+		equipWeapon("Gun")
+		tool = character and character:FindFirstChildOfClass("Tool")
+	end
+	if not tool then return end
+
+	pcall(function()
+		tool.Enabled = true
+		tool:SetAttribute("IsReloading_Client", false)
+		tool:SetAttribute("LocalShotsLeft", 100)
+		tool:SetAttribute("LocalTotalShots", (tool:GetAttribute("LocalTotalShots") or 0) + 1)
+	end)
+
+	-- Quantum handler Skull Guitar
+	if tool:FindFirstChild("RemoteEvent") then
+		pcall(function() tool.RemoteEvent:FireServer("TAP", pos) end)
+		pcall(function() tool.RemoteEvent:FireServer("TAP", typeof(pos) == "Vector3" and pos or pos) end)
+	end
+	if Net then
+		local S = Net:FindFirstChild("RE/ShootGunEvent")
+		if S then
+			pcall(function() S:FireServer(pos, { humanoidRootPart }) end)
+		end
+	end
+	-- Activate fallback
+	pcall(function() tool:Activate() end)
+end
+
+local function tyrantEyes()
+	local map = Workspace:FindFirstChild("Map")
+	local im = map and map:FindFirstChild("TikiOutpost") and map.TikiOutpost:FindFirstChild("IslandModel")
+	if not im then return 0 end
+	local e = im:FindFirstChild("IslandChunks") and im.IslandChunks:FindFirstChild("E")
+	local eyes = { im:FindFirstChild("Eye1"), im:FindFirstChild("Eye2"), e and e:FindFirstChild("Eye3"), e and e:FindFirstChild("Eye4") }
+	local n = 0
+	for _, eye in ipairs(eyes) do if eye and eye.Transparency == 0 then n += 1 end end
+	return n
+end
+
+local function attackTree()
+	local map = Workspace:FindFirstChild("Map")
+	local arena = map and map:FindFirstChild("TikiOutpost") and map.TikiOutpost:FindFirstChild("IslandModel")
+		and map.TikiOutpost.IslandModel:FindFirstChild("IslandChunks")
+		and map.TikiOutpost.IslandModel.IslandChunks:FindFirstChild("D")
+		and map.TikiOutpost.IslandModel.IslandChunks.D:FindFirstChild("EagleBossArena")
+	if not arena then return false end
+
+	for _, child in ipairs(arena:GetChildren()) do
+		if child.Name == "Tree" and child:IsA("Model") and child:FindFirstChild("Group") then
+			local part = child.Group:GetChildren()[1]
+			if part then
+				local pos = part.Position or part.CFrame.Position
+				local stick = CFrame.new(pos + Vector3.new(0, 2.5, 0))
+				if humanoidRootPart and (humanoidRootPart.Position - pos).Magnitude > 8 then
+					topos(stick, true)
+				elseif humanoidRootPart then
+					ensureBV()
+					humanoidRootPart.CFrame = stick
+				end
+				if humanoidRootPart and (humanoidRootPart.Position - pos).Magnitude <= 25 then
+					-- vários tiros Quantum style
+					for _ = 1, 5 do
+						customShoot(pos)
+						task.wait(0.08)
+					end
+					return true
+				end
+			end
+		end
+	end
+	return false
+end
+
+-- ========== FARMS ==========
+local cakeCheck, cakeStr = 0, ""
+
+local function farmTyrant()
+	local boss = getEnemy("Tyrant of the Skies")
+	if boss then doAttack(boss) bringEnemies(boss) return end
+	if G.DestroyVases and tyrantEyes() >= 4 then attackTree() return end
+	local mob = getEnemy(TyrantList)
+	if mob then doAttack(mob) bringEnemies(mob) return end
+	topos(CF.Tyrant, false)
+end
+
+local function farmBone()
+	if G.AutoQuest then
+		if tryQuest("HauntedQuest2", 1, CF.BoneQuest, "Demonic") then return end
+	end
+	local mob = getEnemy(BonesList)
+	if mob then doAttack(mob) bringEnemies(mob) return end
+	topos(CF.BoneFarm, false)
+end
+
+local function farmKatakuri()
+	local prince = getEnemy("Cake Prince")
+	if prince then
+		if Player:GetAttribute("CurrentLocation") ~= "Dimensional Shift" then
+			topos(CF.CakePortal, false)
+			return
+		end
+		doAttack(prince) bringEnemies(prince) return
+	end
+	local now = tick()
+	if now - cakeCheck > 4 then
+		cakeCheck = now
+		local res = FireInvoke("CakePrinceSpawner")
+		if type(res) == "string" then cakeStr = res end
+	end
+	if type(cakeStr) == "string" and string.find(cakeStr, "open the portal now") then
+		FireInvoke("CakePrinceSpawner")
+		task.wait(0.6)
+		return
+	end
+	if G.AutoQuest then
+		if tryQuest("CakeQuest1", 1, CF.CakeQuest, "Cookie") then return end
+	end
+	local mob = getEnemy(CakesList)
+	if mob then doAttack(mob) bringEnemies(mob) return end
+	topos(CF.CakeFarm, false)
+end
+
+local function farmLevel()
+	-- nearest mob (level farm simples, sem quest específica)
+	local mob = getNearestEnemy()
+	if mob then doAttack(mob) bringEnemies(mob) return end
+end
+
+local function farmStep()
+	if not humanoidRootPart then refreshChar() return end
+	if humanoidRootPart.Position.Y < -30 then
+		humanoidRootPart.CFrame = CFrame.new(humanoidRootPart.Position.X, 50, humanoidRootPart.Position.Z)
+		ensureBV()
+		return
+	end
+	if G.FarmMode == "Bone" then farmBone()
+	elseif G.FarmMode == "Katakuri" then farmKatakuri()
+	elseif G.FarmMode == "Level" then farmLevel()
+	else farmTyrant() end
+end
+
+-- ========== DUNGEON (sem bring) ==========
+local function getDungeonMobs()
+	local en = Workspace:FindFirstChild("Enemies")
+	if not en or not humanoidRootPart then return nil end
+	local best, bd = nil, math.huge
+	for _, e in ipairs(en:GetChildren()) do
+		local h, r = e:FindFirstChildOfClass("Humanoid"), e:FindFirstChild("HumanoidRootPart")
+		if h and h.Health > 0 and r and r.Position.Y > -50 then
+			local d = (r.Position - humanoidRootPart.Position).Magnitude
+			if d < bd and d < 2000 then bd, best = d, e end
+		end
+	end
+	return best
+end
+
+local function destroyDungeonEvents()
+	-- shrines / vents / props estilo Quantum AutoDungeonShrine
+	local dungeon = (Workspace:FindFirstChild("Map") and Workspace.Map:FindFirstChild("Dungeon"))
+		or Workspace:FindFirstChild("Dungeon")
+	if not dungeon then return false end
+
+	local keywords = { "Shrine", "Vent", "Prop", "Event", "Totem", "Pillar", "Crystal", "Altar" }
+	local targets = {}
+	for _, d in ipairs(dungeon:GetDescendants()) do
+		if d:IsA("BasePart") or d:IsA("Model") then
+			local n = string.lower(d.Name)
+			for _, k in ipairs(keywords) do
+				if n:find(string.lower(k)) then
+					local pos = d:IsA("BasePart") and d.Position or (d.PrimaryPart and d.PrimaryPart.Position)
+					if not pos then
+						local ok, piv = pcall(function() return d:GetPivot().Position end)
+						if ok then pos = piv end
+					end
+					if pos then table.insert(targets, { Inst = d, Pos = pos }) end
+					break
+				end
+			end
+		end
+	end
+	if #targets == 0 then return false end
+	table.sort(targets, function(a, b)
+		return (a.Pos - humanoidRootPart.Position).Magnitude < (b.Pos - humanoidRootPart.Position).Magnitude
+	end)
+	local t = targets[1]
+	topos(CFrame.new(t.Pos + Vector3.new(0, 5, 0)), true)
+	if (humanoidRootPart.Position - t.Pos).Magnitude <= 40 then
+		for _ = 1, 4 do
+			customShoot(t.Pos)
+			task.wait(0.06)
+		end
+		-- attack normal também
+		equipWeapon(G.Weapon)
+		local tool = character and character:FindFirstChildOfClass("Tool")
+		if tool then pcall(function() tool:Activate() end) end
+		return true
+	end
+	return false
+end
+
+local function selectDungeonCards()
+	if not G.AutoCards then return end
+	pcall(function()
+		local gui = Player:FindFirstChild("PlayerGui")
+		if not gui then return end
+		-- tenta UI de cards
+		for _, d in ipairs(gui:GetDescendants()) do
+			if d:IsA("TextButton") or d:IsA("ImageButton") then
+				local txt = string.lower(d.Text or d.Name or "")
+				for card, on in pairs(G.SelectedCards) do
+					if on and txt:find(string.lower(card)) then
+						pcall(function()
+							firesignal(d.MouseButton1Click)
+							d:Activate()
+						end)
+					end
+				end
+			end
+		end
+		-- remote comum
+		if Net then
+			for card, on in pairs(G.SelectedCards) do
+				if on then
+					pcall(function()
+						local rf = Net:FindFirstChild("RF/DungeonNPCNetworkFunction")
+							or Net:FindFirstChild("RF/DungeonCard")
+						if rf then rf:InvokeServer("SelectCard", card) end
+					end)
+				end
+			end
+		end
+	end)
+end
+
+local function dungeonStep()
+	if not humanoidRootPart then refreshChar() return end
+	if humanoidRootPart.Position.Y < -30 then
+		humanoidRootPart.CFrame = CFrame.new(humanoidRootPart.Position.X, 50, humanoidRootPart.Position.Z)
+		ensureBV()
+		return
+	end
+	selectDungeonCards()
+	if G.AutoDungeonEvent then
+		if destroyDungeonEvents() then return end
+	end
+	local mob = getDungeonMobs()
+	if mob then
+		doAttack(mob, true) -- sem bring
+		return
+	end
+end
+
+-- ========== LOOPS ==========
+task.spawn(function()
+	while true do
+		if G.StartFarm then
+			pcall(farmStep)
+			task.wait(0.05)
+		elseif G.AutoDungeon then
+			pcall(dungeonStep)
+			task.wait(0.05)
+		else
+			stopTween()
+			task.wait(0.2)
+		end
+	end
+end)
+
+-- Fast Attack potente (delay 0)
+task.spawn(function()
+	while true do
+		if G.FA and (G.StartFarm or G.AutoDungeon) and humanoidRootPart and Net then
+			local t
+			if G.AutoDungeon then
+				t = getDungeonMobs()
+			elseif G.FarmMode == "Bone" then t = getEnemy(BonesList)
+			elseif G.FarmMode == "Katakuri" then t = getEnemy("Cake Prince") or getEnemy(CakesList)
+			elseif G.FarmMode == "Level" then t = getNearestEnemy()
+			else t = getEnemy("Tyrant of the Skies") or getEnemy(TyrantList) end
+
+			if t then
+				local root = t:FindFirstChild("HumanoidRootPart")
+				local RA = Net:FindFirstChild("RE/RegisterAttack")
+				local RH = Net:FindFirstChild("RE/RegisterHit")
+				if RA and RH and root and root.Position.Y > -50 then
+					pcall(function()
+						RA:FireServer(0)
+						RH:FireServer(t:FindFirstChild("Head") or root, {{t, root}})
+						RA:FireServer(0)
+						RH:FireServer(t:FindFirstChild("Head") or root, {{t, root}})
+					end)
+				end
+				local tool = character and character:FindFirstChildOfClass("Tool")
+				if tool then pcall(function() tool:Activate() end) end
+			end
+			task.wait(0.03)
+		else
+			task.wait(0.12)
+		end
+	end
+end)
+
+task.spawn(function()
+	while true do
+		task.wait(0.5)
+		if G.V3 then
+			pcall(function()
+				if Remotes and Remotes:FindFirstChild("CommE") then
+					Remotes.CommE:FireServer("ActivateAbility")
+				end
+			end)
+		end
+		if G.V4 then
+			pcall(function()
+				if character and character:FindFirstChild("RaceEnergy") and character:FindFirstChild("RaceTransformed") then
+					if character.RaceEnergy.Value >= 1 and not character.RaceTransformed.Value then
+						local aw = Player.Backpack:FindFirstChild("Awakening")
+						if aw and aw:FindFirstChild("RemoteFunction") then
+							aw.RemoteFunction:InvokeServer({ true })
+						end
+					end
+				end
+			end)
+		end
+	end
+end)
+
+-- Anti AFK
+Player.Idled:Connect(function()
+	if G.AntiAFK then
+		pcall(function()
+			VirtualUser:CaptureController()
+			VirtualUser:ClickButton2(Vector2.new())
+		end)
+	end
+end)
+
+-- ========== UI (limpo, sem desc longa) ==========
+TabMain:Dropdown({
+	Title = "Farm",
+	Values = { "Bone", "Katakuri", "Tyrant", "Level" },
+	Value = G.FarmMode,
+	Callback = function(v) G.FarmMode = v end,
+})
+
+TabMain:Toggle({
+	Title = "Start Farm",
+	Value = G.StartFarm,
+	Callback = function(v)
+		G.StartFarm = v
+		if v then G.AutoDungeon = false end
+		if not v then stopTween() end
+	end,
+})
+
+TabMain:Toggle({
+	Title = "Auto Destruir Vasos",
+	Value = G.DestroyVases,
+	Callback = function(v) G.DestroyVases = v end,
+})
+
+TabMain:Toggle({
+	Title = "Auto Get Quest",
+	Value = G.AutoQuest,
+	Callback = function(v) G.AutoQuest = v end,
+})
+
+-- Dungeon
+TabDungeon:Toggle({
+	Title = "Auto Dungeon",
+	Value = G.AutoDungeon,
+	Callback = function(v)
+		G.AutoDungeon = v
+		if v then G.StartFarm = false end
+		if not v then stopTween() end
+	end,
+})
+
+TabDungeon:Toggle({
+	Title = "Auto Destruir Event",
+	Value = G.AutoDungeonEvent,
+	Callback = function(v) G.AutoDungeonEvent = v end,
+})
+
+TabDungeon:Toggle({
+	Title = "Auto Cards",
+	Value = G.AutoCards,
+	Callback = function(v) G.AutoCards = v end,
+})
+
+for _, card in ipairs(DungeonCards) do
+	TabDungeon:Toggle({
+		Title = card,
+		Value = G.SelectedCards[card] ~= false,
+		Callback = function(v) G.SelectedCards[card] = v end,
+	})
+end
+
+-- Setting
+TabSet:Dropdown({
+	Title = "Weapon",
+	Values = { "Melee", "Sword", "Fruit", "Gun" },
+	Value = G.Weapon,
+	Callback = function(v) G.Weapon = v end,
+})
+
+TabSet:Toggle({ Title = "Fast Attack", Value = G.FA, Callback = function(v) G.FA = v end })
+TabSet:Toggle({ Title = "Bring Mob", Value = G.Bring, Callback = function(v) G.Bring = v end })
+TabSet:Slider({ Title = "Bring Range", Value = { Min = 50, Max = 400, Default = G.BringRange }, Callback = function(v) G.BringRange = v end })
+TabSet:Slider({ Title = "Farm Height", Value = { Min = 5, Max = 30, Default = G.PosY }, Callback = function(v) G.PosY = v end })
+TabSet:Slider({ Title = "Tween Speed", Value = { Min = 50, Max = 250, Default = G.TweenSpeed }, Callback = function(v) G.TweenSpeed = v end })
+TabSet:Toggle({ Title = "Auto V3", Value = G.V3, Callback = function(v) G.V3 = v end })
+TabSet:Toggle({ Title = "Auto V4", Value = G.V4, Callback = function(v) G.V4 = v end })
+
+TabSet:Toggle({
+	Title = "Anti AFK",
+	Value = G.AntiAFK,
+	Callback = function(v) G.AntiAFK = v end,
+})
+
+local TimerLabel = TabSet:Paragraph({
+	Title = "Tempo no Server",
+	Desc = "00:00:00",
+})
+
+task.spawn(function()
+	while true do
+		local t = math.floor(tick() - ServerJoinTime)
+		local h = math.floor(t / 3600)
+		local m = math.floor((t % 3600) / 60)
+		local s = t % 60
+		local str = string.format("%02d:%02d:%02d", h, m, s)
+		pcall(function()
+			if TimerLabel and TimerLabel.SetDesc then
+				TimerLabel:SetDesc(str)
+			elseif TimerLabel and TimerLabel.Desc then
+				TimerLabel.Desc = str
+			end
+		end)
+		task.wait(1)
+	end
+end)
+
+WindUI:Notify({ Title = "Zero Hub", Content = "Loaded", Duration = 3 })
+print("[Zero Hub] ready")
